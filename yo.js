@@ -1,4 +1,5 @@
 const { VK, API, Keyboard } = require('vk-io');
+const { SessionManager } = require('@vk-io/session');
 const mysql = require('mysql2/promise');
 
 const groupToken =
@@ -36,6 +37,8 @@ async function start() {
                 }),
             ],
         ]);
+        const sessionManager = new SessionManager();
+        vk.updates.on('message_new', sessionManager.middleware);
         // COMMANDS
         async function getYoList(ctx, flag = false) {
             try {
@@ -74,6 +77,7 @@ async function start() {
             try {
                 const { body } = ctx.messagePayload;
                 const dropUser = await getUser(body);
+
                 const dropUserFriends = JSON.parse(dropUser.friends);
                 const existFriend = dropUserFriends.find(
                     (el) => el.id === ctx.senderId
@@ -82,23 +86,31 @@ async function start() {
                 if (!existFriend)
                     return ctx.send('Этот друг вас не добавил в список :(');
 
+                const user = await getUser(ctx.senderId);
+
                 await groupAPI.messages.send({
                     user_id: body,
-                    message: `Yo - ${existFriend.first_name} ${existFriend.last_name}`,
+                    message: `${user.message} - ${existFriend.first_name} ${existFriend.last_name}`,
                     random_id: 0,
                 });
 
                 const friends = await getYoList(ctx, true);
+                const { session } = ctx;
+                let sended = session.sended || [];
+                if (!sended.includes(body)) {
+                    sended.push(body);
+                    session.sended = sended;
+                }
 
                 const keyboardAfterSend = friends.map((el) => {
-                    if (el.id === body) {
+                    if (sended.includes(el.id)) {
                         return [
                             Keyboard.textButton({
                                 label: 'Yo отправлено!',
                                 payload: {
                                     command: 'cancel',
                                 },
-                                color: Keyboard.NEGATIVE_COLOR,
+                                color: Keyboard.POSITIVE_COLOR,
                             }),
                         ];
                     } else {
@@ -114,29 +126,47 @@ async function start() {
                         ];
                     }
                 });
-                const keyboardReturn = friends.map((el) => {
-                    return [
-                        Keyboard.textButton({
-                            label: el.first_name + ' ' + el.last_name,
-                            payload: {
-                                command: 'sendYo',
-                                body: el.id,
-                            },
-                            color: Keyboard.SECONDARY_COLOR,
-                        }),
-                    ];
-                });
 
                 await ctx.send({
                     keyboard: Keyboard.keyboard([...keyboardAfterSend]),
                     message: '📬',
                 });
                 setTimeout(async () => {
+                    sended.splice(0, 1);
+                    session.sended = sended;
                     await ctx.send({
-                        keyboard: Keyboard.keyboard([...keyboardReturn]),
-                        message: '📄',
+                        keyboard: Keyboard.keyboard([
+                            ...friends.map((el) => {
+                                if (sended.includes(el.id)) {
+                                    return [
+                                        Keyboard.textButton({
+                                            label: 'Yo отправлено!',
+                                            payload: {
+                                                command: 'cancel',
+                                            },
+                                            color: Keyboard.POSITIVE_COLOR,
+                                        }),
+                                    ];
+                                } else {
+                                    return [
+                                        Keyboard.textButton({
+                                            label:
+                                                el.first_name +
+                                                ' ' +
+                                                el.last_name,
+                                            payload: {
+                                                command: 'sendYo',
+                                                body: el.id,
+                                            },
+                                            color: Keyboard.SECONDARY_COLOR,
+                                        }),
+                                    ];
+                                }
+                            }),
+                        ]),
+                        message: '📋',
                     });
-                }, 4000);
+                }, 5000);
             } catch (e) {
                 console.error(e);
             }
@@ -150,8 +180,8 @@ async function start() {
                 );
                 if (user.length < 1) {
                     await db.execute(
-                        `INSERT INTO users (user, friends) VALUES (?, ?)`,
-                        [senderID, JSON.stringify([])]
+                        `INSERT INTO users (user, message, friends) VALUES (?, ?, ?)`,
+                        [senderID, 'Yo', JSON.stringify([])]
                     );
                     [user] = await db.execute(
                         `SELECT * from users WHERE user = ?`,
@@ -170,22 +200,20 @@ async function start() {
             if (button) {
                 switch (ctx.messagePayload.command) {
                     case 'start':
-                        await ctx.send({
+                        return await ctx.send({
                             message: '🤖',
                             keyboard: initialButton,
                         });
-                        break;
                     case 'getYoList':
-                        await getYoList(ctx);
-                        break;
+                        return await getYoList(ctx);
                     case 'sendYo':
-                        await sendYo(ctx);
+                        return await sendYo(ctx);
                     default:
                         return;
                 }
             }
             if (/^начать$/i.test(msg)) {
-                await ctx.send({
+                return await ctx.send({
                     message: '🤖',
                     keyboard: initialButton,
                 });
@@ -216,12 +244,23 @@ async function start() {
                         },
                     ];
                     await db.execute(
-                        `UPDATE users set friends = ? WHERE user = ?`,
+                        `UPDATE users SET friends = ? WHERE user = ?`,
                         [JSON.stringify(friends), ctx.senderId]
                     );
                     await ctx.send('Вы добавили друга в список 📝');
-                    await getYoList(ctx);
+                    return await getYoList(ctx);
                 }
+                return;
+            }
+
+            if (/^\/(т|t)\s.*$/i.test(msg)) {
+                const message = msg.split('/t ')[1];
+                await getUser(ctx.senderId);
+                await db.execute(
+                    `UPDATE users SET message = ? WHERE user = ?`,
+                    [message, ctx.senderId]
+                );
+                await ctx.send('Текст отправки изменён!');
             }
         });
         await vk.updates.startPolling();

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@vk-io/hear": "^1.1.0",
+    "@vk-io/session": "^2.1.0",
     "mysql2": "^2.2.5",
     "vk-io": "^4.3.0",
     "vk-io-question": "^2.0.1"
