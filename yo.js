@@ -37,7 +37,7 @@ async function start() {
             ],
         ]);
         // COMMANDS
-        async function getYoList(ctx) {
+        async function getYoList(ctx, flag = false) {
             try {
                 const sender = await getUser(ctx.senderId);
                 const friends = JSON.parse(sender.friends);
@@ -46,6 +46,7 @@ async function start() {
                         `Вы не добавили друзей в список! \n Отправьте ссылку на страницу друга`
                     );
                 }
+
                 const arrBtnFriends = friends.map((el) => {
                     return [
                         Keyboard.textButton({
@@ -58,9 +59,12 @@ async function start() {
                         }),
                     ];
                 });
+
+                if (flag) return friends;
+
                 ctx.send({
                     message: 'Выберите друга для отпраки Yo',
-                    keyboard: Keyboard.keyboard([...arrBtnFriends]).inline(),
+                    keyboard: Keyboard.keyboard([...arrBtnFriends]),
                 });
             } catch (e) {
                 console.error(e);
@@ -83,7 +87,56 @@ async function start() {
                     message: `Yo - ${existFriend.first_name} ${existFriend.last_name}`,
                     random_id: 0,
                 });
-                await ctx.send('Yo доставлено!');
+
+                const friends = await getYoList(ctx, true);
+
+                const keyboardAfterSend = friends.map((el) => {
+                    if (el.id === body) {
+                        return [
+                            Keyboard.textButton({
+                                label: 'Yo отправлено!',
+                                payload: {
+                                    command: 'cancel',
+                                },
+                                color: Keyboard.NEGATIVE_COLOR,
+                            }),
+                        ];
+                    } else {
+                        return [
+                            Keyboard.textButton({
+                                label: el.first_name + ' ' + el.last_name,
+                                payload: {
+                                    command: 'sendYo',
+                                    body: el.id,
+                                },
+                                color: Keyboard.SECONDARY_COLOR,
+                            }),
+                        ];
+                    }
+                });
+                const keyboardReturn = friends.map((el) => {
+                    return [
+                        Keyboard.textButton({
+                            label: el.first_name + ' ' + el.last_name,
+                            payload: {
+                                command: 'sendYo',
+                                body: el.id,
+                            },
+                            color: Keyboard.SECONDARY_COLOR,
+                        }),
+                    ];
+                });
+
+                await ctx.send({
+                    keyboard: Keyboard.keyboard([...keyboardAfterSend]),
+                    message: '📬',
+                });
+                setTimeout(async () => {
+                    await ctx.send({
+                        keyboard: Keyboard.keyboard([...keyboardReturn]),
+                        message: '📄',
+                    });
+                }, 4000);
             } catch (e) {
                 console.error(e);
             }
@@ -167,6 +220,7 @@ async function start() {
                         [JSON.stringify(friends), ctx.senderId]
                     );
                     await ctx.send('Вы добавили друга в список 📝');
+                    await getYoList(ctx);
                 }
             }
         });
